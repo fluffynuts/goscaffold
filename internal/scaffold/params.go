@@ -3,6 +3,7 @@
 package scaffold
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"regexp"
@@ -68,6 +69,13 @@ func psName(app string) string {
 	return b.String()
 }
 
+// lf makes line endings LF. A checkout on Windows may have turned the
+// embedded templates into CRLF, which would break the shell scripts and
+// make every generated file differ from what a Linux checkout writes.
+func lf(b []byte) []byte {
+	return bytes.ReplaceAll(b, []byte("\r\n"), []byte("\n"))
+}
+
 // Render reads a template from assets and fills in p. Templates mark their
 // holes with @@NAME@@ rather than {{ }} or ${ }, since every file type
 // involved (GitHub workflows, PowerShell, shell, make) has a use for those.
@@ -76,6 +84,7 @@ func Render(assets fs.FS, name string, p Params) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	raw = lf(raw)
 	repl := func(extra ...string) *strings.Replacer {
 		return strings.NewReplacer(append([]string{
 			"@@APP@@", p.App,
@@ -92,6 +101,7 @@ func Render(assets fs.FS, name string, p Params) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		section = lf(section)
 		return []byte(repl("@@INSTALL@@", strings.TrimRight(repl().Replace(string(section)), "\n")).Replace(string(raw))), nil
 	}
 	return []byte(repl().Replace(string(raw))), nil

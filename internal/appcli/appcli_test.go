@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -174,7 +175,7 @@ func TestInstallIntoCopiesAndReplaces(t *testing.T) {
 	if !strings.Contains(out.String(), "replaced") {
 		t.Errorf("output %q doesn't say it replaced", out.String())
 	}
-	if info, err := os.Stat(dest); err != nil || info.Mode().Perm()&0o100 == 0 {
+	if info, err := os.Stat(dest); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0) {
 		t.Errorf("installed binary isn't executable: %v %v", info, err)
 	}
 }

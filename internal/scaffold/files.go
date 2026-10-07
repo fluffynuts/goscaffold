@@ -75,7 +75,7 @@ func Files(assets fs.FS, p Params, plan Plan) ([]File, error) {
 		if err != nil {
 			return nil, err
 		}
-		content := append(bytes.TrimRight(base, "\n"), '\n')
+		content := append(bytes.TrimRight(lf(base), "\n"), '\n')
 		files = append(files, File{Path: ".gitignore", Content: append(content, extra...), Mode: 0o644})
 	}
 	return files, nil

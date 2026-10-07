@@ -1,0 +1,6 @@
+# The templates are embedded in the binary and written out as they are, so
+# they must be LF in every checkout: CRLF would break the generated scripts.
+* text=auto
+templates/** text eol=lf
+.gitignore text eol=lf
+*.sh text eol=lf

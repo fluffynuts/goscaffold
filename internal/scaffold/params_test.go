@@ -74,3 +74,13 @@ func TestValidateOwner(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderNormalisesLineEndings(t *testing.T) {
+	assets := fstest.MapFS{
+		"templates/a.tmpl": {Data: []byte("#!/bin/sh\r\necho @@APP@@\r\n")},
+	}
+	got, err := Render(assets, "templates/a.tmpl", Params{App: "x"})
+	if err != nil || string(got) != "#!/bin/sh\necho x\n" {
+		t.Errorf("got %q, %v", got, err)
+	}
+}
