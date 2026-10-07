@@ -1,0 +1,30 @@
+## Install
+
+**Linux and macOS:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/@@REPO@@/@@BRANCH@@/install.sh | sh
+```
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/@@REPO@@/@@BRANCH@@/install.ps1 | iex
+```
+
+Either one downloads the latest release for your machine, checks it against the release's
+checksums, and runs `@@APP@@ --install` from it. That puts the `@@APP@@` binary in `~/.local/bin`. On
+Windows it adds `~\.local\bin` to your user `PATH` if it isn't there already (open a new terminal to
+pick it up); on Linux and macOS, where that depends on your shell's profile, it tells you what to add
+if the folder isn't on your `PATH`. `install.sh` needs `curl` or `wget`, and `unzip` (or `python3`).
+
+Run the same command again to upgrade, or, once @@APP@@ is installed:
+
+```sh
+@@APP@@ --upgrade
+```
+
+You can also download the zip for your platform from the
+[latest release](https://github.com/@@REPO@@/releases/latest) (`@@APP@@-linux-amd64.zip`,
+`@@APP@@-macos-arm64.zip`, `@@APP@@-windows-amd64.zip` and so on, each for x86-64 and ARM, plus a
+`SHA256SUMS`), unzip it anywhere, and run `@@APP@@ --install` from the folder it makes.

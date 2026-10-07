@@ -1,0 +1,16 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"@@MODULE@@/internal/appcli"
+)
+
+func main() {
+	// --help, --version, --install and --upgrade live in internal/appcli.
+	if handled, exitCode := appcli.Handle(os.Args[1:]); handled {
+		os.Exit(exitCode)
+	}
+	fmt.Println("scaffolded with goscaffold")
+}
