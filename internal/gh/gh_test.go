@@ -53,3 +53,37 @@ func TestRepoCommands(t *testing.T) {
 		t.Errorf("ran %q, want %q", f.Calls, want)
 	}
 }
+
+func TestRepoExists(t *testing.T) {
+	for _, c := range []struct {
+		err     error
+		want    bool
+		wantErr bool
+	}{
+		{nil, true, false},
+		{errors.New("GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)"), false, false},
+		{errors.New("HTTP 401: Bad credentials"), false, true},
+	} {
+		f := &sh.Fake{Handler: func(dir, name string, args []string) (string, error) { return "", c.err }}
+		got, err := RepoExists(f, "o/r")
+		if got != c.want || (err != nil) != c.wantErr {
+			t.Errorf("when gh fails with %v: got %v, %v", c.err, got, err)
+		}
+		if !f.Ran("gh repo view o/r --json name") {
+			t.Errorf("ran %q", f.Calls)
+		}
+	}
+}
+
+func TestRemoteURLFollowsGhsProtocol(t *testing.T) {
+	for protocol, want := range map[string]string{
+		"":      "https://github.com/o/r.git",
+		"https": "https://github.com/o/r.git",
+		"ssh":   "git@github.com:o/r.git",
+	} {
+		f := &sh.Fake{Handler: func(dir, name string, args []string) (string, error) { return protocol + "\n", nil }}
+		if got := RemoteURL(f, "o/r"); got != want {
+			t.Errorf("with git_protocol %q: got %q, want %q", protocol, got, want)
+		}
+	}
+}

@@ -1,5 +1,6 @@
 // Package gh is the little goscaffold needs from the GitHub CLI: who the
-// user is, which organisations they belong to, and making a repository.
+// user is, which organisations they belong to, and finding or making a
+// repository.
 package gh
 
 import (
@@ -32,6 +33,20 @@ func Orgs(r sh.Runner) ([]string, error) {
 	return sh.Lines(out), nil
 }
 
+// RepoExists reports whether slug ("owner/name") is already a repository on
+// GitHub. Only gh saying it can't find the repository counts as "no": any
+// other failure (not logged in, no network) is an error.
+func RepoExists(r sh.Runner, slug string) (bool, error) {
+	_, err := r.Exec("", "gh", "repo", "view", slug, "--json", "name")
+	if err == nil {
+		return true, nil
+	}
+	if strings.Contains(err.Error(), "Could not resolve to a Repository") {
+		return false, nil
+	}
+	return false, fmt.Errorf("checking whether %s is already on GitHub: %w", slug, err)
+}
+
 // visibility is the gh flag for a repository's visibility.
 func visibility(private bool) string {
 	if private {
@@ -51,6 +66,16 @@ func CreateRepo(r sh.Runner, slug string, private bool) error {
 func CreateRepoFromSource(r sh.Runner, dir, slug string, private bool) error {
 	_, err := r.Exec(dir, "gh", "repo", "create", slug, visibility(private), "--source", ".", "--remote", "origin")
 	return err
+}
+
+// RemoteURL is the URL git should use for slug, over ssh or https as the
+// user has told gh they prefer (https when they haven't), as a clone would.
+func RemoteURL(r sh.Runner, slug string) string {
+	out, err := r.Exec("", "gh", "config", "get", "git_protocol")
+	if err == nil && strings.TrimSpace(out) == "ssh" {
+		return "git@github.com:" + slug + ".git"
+	}
+	return "https://github.com/" + slug + ".git"
 }
 
 // Clone checks slug out into dir, which is created if it doesn't exist and

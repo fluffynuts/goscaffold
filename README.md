@@ -16,7 +16,8 @@ The path can be relative or absolute. What happens next depends on the folder.
 **A new project** (the folder doesn't exist, or is empty): goscaffold asks for the project's name
 (defaulting to the folder's), who should own the GitHub repository (you, or one of your
 organisations, as `gh` knows them) and whether it's public (the default) or private. It creates the
-repository with `gh`, checks it out into the folder, and writes:
+repository with `gh` (or, if that repository is already on GitHub, uses it as it is, without asking
+about visibility), checks it out into the folder, and writes:
 
 - `README.md`, `.gitignore` and a `VERSION` file (the `major.minor` part of the version, bumped by hand)
 - `src/main.go`, which prints "scaffolded with goscaffold"
@@ -38,7 +39,8 @@ Nothing is committed or pushed: that's yours to decide.
 **An existing project:** the same, minus what the project has already:
 
 - a project that is already under git with a GitHub remote isn't given another repository. One
-  without a remote (or not under git at all) is offered one
+  without a remote (or not under git at all) is offered one; if that repository is already on
+  GitHub, it's added as `origin` instead (nothing is fetched or pushed)
 - a project with Go sources keeps its own `main`. `internal/appcli` is still written, and goscaffold
   prints the lines to add to your `main()` to use it
 - the main package is found for the build scripts (you're asked which, when there are several)

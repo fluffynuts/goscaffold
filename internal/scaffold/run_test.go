@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,6 +81,8 @@ type world struct {
 	origin     string // the project's origin remote, if any
 	tidyFails  bool
 	createFail error
+	existing   []string // repositories already on GitHub, as owner/name
+	protocol   string   // gh's git_protocol setting
 }
 
 func (w *world) runner(missing ...string) *sh.Fake {
@@ -94,11 +97,21 @@ func (w *world) runner(missing ...string) *sh.Fake {
 			return w.user + "\n", nil
 		case cmd == "gh org list":
 			return strings.Join(w.orgs, "\n") + "\n", nil
+		case strings.HasPrefix(cmd, "gh repo view "):
+			if slices.Contains(w.existing, args[2]) {
+				return "{\"name\":\"x\"}\n", nil
+			}
+			return "", errors.New("gh repo view: exit status 1: GraphQL: Could not resolve to a Repository with the name '" + args[2] + "'. (repository)")
+		case cmd == "gh config get git_protocol":
+			return w.protocol + "\n", nil
 		case strings.HasPrefix(cmd, "gh repo create"):
 			return "", w.createFail
 		case strings.HasPrefix(cmd, "gh repo clone"):
 			target := args[len(args)-1]
 			return "", os.MkdirAll(filepath.Join(target, ".git"), 0o755)
+		case strings.HasPrefix(cmd, "git remote add "):
+			w.origin = args[3]
+			return "", nil
 		case cmd == "git init":
 			return "", os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
 		case cmd == "git remote get-url origin":
@@ -185,6 +198,49 @@ func TestNewProjectAsksWhereAndHowThenCreatesAndClonesTheRepository(t *testing.T
 	}
 	if f.Ran("git commit") || f.Ran("git push") || f.Ran("git add") {
 		t.Errorf("committed or pushed: %q", f.Calls)
+	}
+}
+
+func TestNewProjectUsesARepositoryThatIsAlreadyOnGitHub(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "some-project")
+	f := (&world{user: "bob", branch: "main", existing: []string{"bob/some-project"}}).runner()
+	u := &script{interactive: true}
+	out, err := doRun(t, Options{Path: dir}, u, f)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if f.Ran("gh repo create") {
+		t.Errorf("tried to create a repository that's already there: %q", f.Calls)
+	}
+	if u.askedAbout("public or private") {
+		t.Error("asked about the visibility of a repository that already has one")
+	}
+	if !f.Ran("gh repo clone bob/some-project " + dir) {
+		t.Errorf("ran %q", f.Calls)
+	}
+	if !strings.Contains(out, "already on GitHub") {
+		t.Errorf("didn't say it's using the existing repository:\n%s", out)
+	}
+	if !exists(dir, "src/main.go") {
+		t.Error("files are missing")
+	}
+}
+
+func TestNewProjectStopsWhenGitHubCantSayWhetherTheRepositoryExists(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "p")
+	f := (&world{user: "bob", branch: "main"}).runner()
+	handler := f.Handler
+	f.Handler = func(dir, name string, args []string) (string, error) {
+		if name == "gh" && args[0] == "repo" && args[1] == "view" {
+			return "", errors.New("HTTP 401: Bad credentials")
+		}
+		return handler(dir, name, args)
+	}
+	if _, err := doRun(t, Options{Path: dir}, ui.Defaults{}, f); err == nil || !strings.Contains(err.Error(), "Bad credentials") {
+		t.Errorf("got %v", err)
+	}
+	if f.Ran("gh repo create") {
+		t.Errorf("ran %q", f.Calls)
 	}
 }
 
@@ -492,6 +548,31 @@ func TestExistingProjectNotUnderGitCanBeMadeARepository(t *testing.T) {
 	}
 	if !f.Ran("git init") || !f.Ran("gh repo create acme/legacy --public --source . --remote origin") {
 		t.Errorf("ran %q", f.Calls)
+	}
+}
+
+func TestExistingProjectIsLinkedToARepositoryThatIsAlreadyOnGitHub(t *testing.T) {
+	for _, c := range []struct{ protocol, url string }{
+		{"", "https://github.com/acme/legacy.git"},
+		{"https", "https://github.com/acme/legacy.git"},
+		{"ssh", "git@github.com:acme/legacy.git"},
+	} {
+		dir := existingProject(t)
+		w := &world{branch: "main", existing: []string{"acme/legacy"}, protocol: c.protocol}
+		f := w.runner()
+		out, err := doRun(t, Options{Path: dir, Name: "legacy", CreateRepo: true, Org: "acme"}, ui.Defaults{}, f)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		if f.Ran("gh repo create") {
+			t.Errorf("tried to create a repository that's already there: %q", f.Calls)
+		}
+		if !f.Ran("git init") || !f.Ran("git remote add origin "+c.url) {
+			t.Errorf("with git_protocol %q, ran %q", c.protocol, f.Calls)
+		}
+		if !strings.Contains(read(t, dir, "install.sh"), "github.com/acme/legacy/releases") {
+			t.Error("the existing repository isn't used in install.sh")
+		}
 	}
 }
 

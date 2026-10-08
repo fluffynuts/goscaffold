@@ -101,45 +101,70 @@ func (r *run) projectName() (string, error) {
 	return name, ValidateApp(name)
 }
 
-// repoDetails asks which account should own a new GitHub repository and
-// whether it should be private, unless the command line already said.
-func (r *run) repoDetails() (owner string, private bool, err error) {
+// repoOwner asks which account should own the project's GitHub repository,
+// unless the command line already said.
+func (r *run) repoOwner() (string, error) {
 	if !r.e.Sh.Has("gh") {
-		return "", false, errors.New("the GitHub CLI (gh) isn't installed, or isn't on your PATH: see https://cli.github.com, or use --no-repo to skip creating a GitHub repository")
+		return "", errors.New("the GitHub CLI (gh) isn't installed, or isn't on your PATH: see https://cli.github.com, or use --no-repo to skip creating a GitHub repository")
 	}
-	owner = r.o.Org
+	owner := r.o.Org
 	if owner == "" {
 		user, err := gh.CurrentUser(r.e.Sh)
 		if err != nil {
-			return "", false, err
+			return "", err
 		}
 		orgs, err := gh.Orgs(r.e.Sh)
 		if err != nil {
-			return "", false, err
+			return "", err
 		}
 		choices := append([]string{user}, orgs...)
 		i, err := r.e.UI.Select("Where should I create this repository?", choices, 0)
 		if err != nil {
-			return "", false, err
+			return "", err
 		}
 		owner = choices[i]
 	}
-	if err := ValidateOwner(owner); err != nil {
-		return "", false, err
-	}
+	return owner, ValidateOwner(owner)
+}
+
+// repoIsPrivate asks whether a new GitHub repository should be private,
+// unless the command line already said.
+func (r *run) repoIsPrivate() (bool, error) {
 	switch strings.ToLower(r.o.Visibility) {
 	case "public":
-		private = false
+		return false, nil
 	case "private":
-		private = true
-	default:
-		i, err := r.e.UI.Select("Should the repository be public or private?", []string{"public", "private"}, 0)
-		if err != nil {
-			return "", false, err
-		}
-		private = i == 1
+		return true, nil
 	}
-	return owner, private, nil
+	i, err := r.e.UI.Select("Should the repository be public or private?", []string{"public", "private"}, 0)
+	return i == 1, err
+}
+
+// findOrMakeRepo settles the project's GitHub repository: one already there
+// (made by hand, or by an earlier run) is used as it is, and otherwise one is
+// made by create. It reports whether the repository already existed.
+func (r *run) findOrMakeRepo(create func(slug string, private bool) error) (slug string, existed bool, err error) {
+	owner, err := r.repoOwner()
+	if err != nil {
+		return "", false, err
+	}
+	slug = owner + "/" + r.name
+	existed, err = gh.RepoExists(r.e.Sh, slug)
+	if err != nil {
+		return "", false, err
+	}
+	if existed {
+		r.say("%s is already on GitHub, so I'll use it", slug)
+		return slug, true, nil
+	}
+	private, err := r.repoIsPrivate()
+	if err != nil {
+		return "", false, err
+	}
+	if err := create(slug, private); err != nil {
+		return "", false, fmt.Errorf("creating %s: %w", slug, err)
+	}
+	return slug, false, nil
 }
 
 // newProject is Scenario 1: the folder is missing or empty, so there is a
@@ -162,18 +187,16 @@ func (r *run) newProject() error {
 		}
 		return nil
 	}
-	owner, private, err := r.repoDetails()
+	slug, _, err := r.findOrMakeRepo(func(slug string, private bool) error {
+		r.say("creating %s on GitHub", slug)
+		return gh.CreateRepo(r.e.Sh, slug, private)
+	})
 	if err != nil {
 		return err
 	}
-	slug := owner + "/" + name
-	r.say("creating %s on GitHub", slug)
-	if err := gh.CreateRepo(r.e.Sh, slug, private); err != nil {
-		return fmt.Errorf("creating %s: %w", slug, err)
-	}
 	r.say("checking it out into %s", r.dir)
 	if err := gh.Clone(r.e.Sh, slug, r.dir); err != nil {
-		return fmt.Errorf("checking %s out (it has been created): %w", slug, err)
+		return fmt.Errorf("checking %s out (it is on GitHub): %w", slug, err)
 	}
 	r.repo = slug
 	r.hasGit = true
@@ -249,23 +272,39 @@ func (r *run) createRepoForExisting() error {
 		return err
 	}
 	r.name = name
-	owner, private, err := r.repoDetails()
+	slug, existed, err := r.findOrMakeRepo(func(slug string, private bool) error {
+		if err := r.ensureGit(); err != nil {
+			return err
+		}
+		r.say("creating %s on GitHub, as this folder's origin", slug)
+		return gh.CreateRepoFromSource(r.e.Sh, r.dir, slug, private)
+	})
 	if err != nil {
 		return err
 	}
-	slug := owner + "/" + r.name
-	if !r.hasGit {
-		r.say("making %s a git repository", r.dir)
-		if err := gitx.Init(r.e.Sh, r.dir); err != nil {
+	if existed {
+		if err := r.ensureGit(); err != nil {
 			return err
 		}
-		r.hasGit = true
-	}
-	r.say("creating %s on GitHub, as this folder's origin", slug)
-	if err := gh.CreateRepoFromSource(r.e.Sh, r.dir, slug, private); err != nil {
-		return fmt.Errorf("creating %s: %w", slug, err)
+		r.say("adding %s as this folder's origin (nothing is fetched or pushed)", slug)
+		if err := gitx.AddRemote(r.e.Sh, r.dir, "origin", gh.RemoteURL(r.e.Sh, slug)); err != nil {
+			return fmt.Errorf("adding %s as origin: %w", slug, err)
+		}
 	}
 	r.repo = slug
+	return nil
+}
+
+// ensureGit makes the project folder a git repository, if it isn't already.
+func (r *run) ensureGit() error {
+	if r.hasGit {
+		return nil
+	}
+	r.say("making %s a git repository", r.dir)
+	if err := gitx.Init(r.e.Sh, r.dir); err != nil {
+		return err
+	}
+	r.hasGit = true
 	return nil
 }
 

@@ -37,6 +37,12 @@ func Remote(r sh.Runner, dir, name string) string {
 	return strings.TrimSpace(out)
 }
 
+// AddRemote adds url to dir's repository as the named remote.
+func AddRemote(r sh.Runner, dir, name, url string) error {
+	_, err := r.Exec(dir, "git", "remote", "add", name, url)
+	return err
+}
+
 // DefaultBranch is the branch a repository's releases should come from: what
 // the remote calls its default, else the branch checked out, else the
 // user's init.defaultBranch, else "main". For a repository just cloned from
